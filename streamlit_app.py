@@ -199,7 +199,7 @@ def main_app():
     
     # Display all lists
     for gift_list in lists:
-        with st.expander(f"🎁 {gift_list['name']} (Recipients: {', '.join(gift_list['recipients'])})", expanded=True):
+        with st.expander(f"🎁 {gift_list['name']} (Recipients: {', '.join(gift_list['recipients'])})", expanded=False):
             current_user = st.session_state.user['username']
             recipients = gift_list.get('recipients', [])
             is_recipient = current_user in recipients
