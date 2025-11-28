@@ -124,6 +124,14 @@ def update_gift_status(gift_id, status, user):
     result = supabase.table('gifts').update(data).eq('id', gift_id).execute()
     return result.data
 
+def delete_gift(gift_id):
+    """Delete a gift and its associated comments"""
+    # First delete all comments associated with this gift
+    supabase.table('gift_comments').delete().eq('gift_id', gift_id).execute()
+    # Then delete the gift itself
+    result = supabase.table('gifts').delete().eq('id', gift_id).execute()
+    return result.data
+
 def add_comment_to_gift(gift_id, comment, user):
     """Add a comment to a gift"""
     data = {
@@ -236,7 +244,7 @@ def main_app():
                 for gift in gifts:
                     with st.container():
                         st.divider()
-                        col1, col2 = st.columns([3, 1])
+                        col1, col2, col3 = st.columns([3, 1, 0.5])
                         
                         with col1:
                             st.markdown(f"### {gift['name']}")
@@ -256,6 +264,14 @@ def main_app():
                                     st.info(f"Shared buy by {gift.get('interested_buyer', 'someone')}")
                                 elif status == 'bought':
                                     st.error(f"Bought by {gift.get('bought_by', 'someone')}")
+                        
+                        with col3:
+                            # Delete button (only for gift creator)
+                            if gift['added_by'] == current_user:
+                                if st.button("🗑️", key=f"delete_{gift['id']}", help="Delete this gift"):
+                                    delete_gift(gift['id'])
+                                    st.success("Gift deleted!")
+                                    st.rerun()
                         
                         # Actions (only for non-recipients)
                         if not is_recipient:
