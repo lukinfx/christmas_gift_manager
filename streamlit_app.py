@@ -245,16 +245,17 @@ def main_app():
                             st.caption(f"Added by: {gift['added_by']}")
                         
                         with col2:
-                            # Status badge
-                            status = gift.get('status', 'available')
-                            if status == 'available':
-                                st.success("Available")
-                            elif status == 'want_to_buy':
-                                st.warning(f"Reserved by {gift.get('interested_buyer', 'someone')}")
-                            elif status == 'want_to_buy_shared':
-                                st.info(f"Shared buy by {gift.get('interested_buyer', 'someone')}")
-                            elif status == 'bought':
-                                st.error(f"Bought by {gift.get('bought_by', 'someone')}")
+                            # Status badge (only visible to non-recipients)
+                            if not is_recipient:
+                                status = gift.get('status', 'available')
+                                if status == 'available':
+                                    st.success("Available")
+                                elif status == 'want_to_buy':
+                                    st.warning(f"Reserved by {gift.get('interested_buyer', 'someone')}")
+                                elif status == 'want_to_buy_shared':
+                                    st.info(f"Shared buy by {gift.get('interested_buyer', 'someone')}")
+                                elif status == 'bought':
+                                    st.error(f"Bought by {gift.get('bought_by', 'someone')}")
                         
                         # Actions (only for non-recipients)
                         if not is_recipient:
@@ -272,16 +273,16 @@ def main_app():
                                     update_gift_status(gift['id'], 'bought', current_user)
                                     st.rerun()
                         
-                        # Comments section
-                        st.markdown("**Comments:**")
-                        comments = get_comments_for_gift(gift['id'])
-                        
-                        if comments:
-                            for comment in comments:
-                                st.text(f"{comment['username']} ({comment['created_at'][:10]}): {comment['comment']}")
-                        
-                        # Add comment (only non-recipients can comment)
+                        # Comments section (only visible to non-recipients)
                         if not is_recipient:
+                            st.markdown("**Comments:**")
+                            comments = get_comments_for_gift(gift['id'])
+                            
+                            if comments:
+                                for comment in comments:
+                                    st.text(f"{comment['username']} ({comment['created_at'][:10]}): {comment['comment']}")
+                            
+                            # Add comment
                             with st.form(f"comment_{gift['id']}"):
                                 new_comment = st.text_input("Add a comment", key=f"new_comment_{gift['id']}")
                                 if st.form_submit_button("Post Comment"):
