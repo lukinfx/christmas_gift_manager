@@ -1,0 +1,34 @@
+{
+  "users": [
+    {
+      "username": "lukas",
+      "password": "lukasek",
+      "display_name": "Lukas"
+    },
+    {
+      "username": "veronika",
+      "password": "beruska",
+      "display_name": "Veronika"
+    },
+    {
+      "username": "jana",
+      "password": "zmijozel",
+      "display_name": "Jana"
+    },
+    {
+      "username": "lucie",
+      "password": "brouk",
+      "display_name": "Lucie"
+    },
+    {
+      "username": "tomas",
+      "password": "lucie",
+      "display_name": "Tomas"
+    },
+    {
+      "username": "vojta",
+      "password": "pivko",
+      "display_name": "Vojta"
+    }
+  ]
+}
