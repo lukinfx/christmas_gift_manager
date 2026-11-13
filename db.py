@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import warnings
 
 import httpx
+import rules
 import streamlit as st
 from dotenv import load_dotenv
 from supabase import Client, create_client
@@ -172,9 +173,101 @@ def update_gift_status(gift_id: int, status: str, user: str) -> list[dict]:
     return result
 
 
+def update_gift(
+    gift_id: int,
+    user: str,
+    name: str,
+    description: str,
+    url: str | None,
+    price: float | None,
+    image_url: str | None,
+) -> bool:
+    """Edit a gift's details. Only its author may do so (checked here, not just in the UI).
+    Status, buyers and comments are left untouched. Empty link/price/image clear the field."""
+    gift = _get_gift(gift_id)
+    if gift is None or not rules.can_edit_gift(gift, user):
+        return False
+    data = {"name": name, "description": description, "url": url, "price": price, "image_url": image_url}
+    get_client().table("gifts").update(data).eq("id", gift_id).execute()
+    _invalidate()
+    return True
+
+
+def _get_list(list_id: int) -> dict | None:
+    rows = get_client().table("gift_lists").select("*").eq("id", list_id).execute().data
+    return rows[0] if rows else None
+
+
+def move_gift(gift_id: int, user: str, target_list_id: int) -> bool:
+    """Move a gift to another list. Only its author may. Reservations/purchases made for the old
+    list are cleared (the gift starts fresh as 'available'); comments stay with the gift."""
+    gift = _get_gift(gift_id)
+    target = _get_list(target_list_id)
+    if gift is None or target is None or gift["list_id"] == target_list_id:
+        return False
+    if not rules.can_move_gift(gift, user):
+        return False
+    data = {
+        "list_id": target_list_id,
+        "status": "available",
+        "interested_buyer": None,
+        "split_buyers": [],
+        "bought_by": None,
+        "bought_at": None,
+    }
+    get_client().table("gifts").update(data).eq("id", gift_id).execute()
+    _log_event(target_list_id, gift_id, gift["name"], user, "gift_moved")
+    _invalidate()
+    return True
+
+
+def _get_gift(gift_id: int) -> dict | None:
+    rows = get_client().table("gifts").select("*").eq("id", gift_id).execute().data
+    return rows[0] if rows else None
+
+
+def join_split(gift_id: int, user: str) -> None:
+    """Start a split buy, or join an existing one. Everyone pays an equal part."""
+    gift = _get_gift(gift_id)  # fresh read: someone else may have joined a moment ago
+    if gift is None or gift.get("status") not in ("available", "want_to_buy_shared"):
+        return
+    people = rules.split_participants(gift)
+    if user in people:
+        return
+    started = not people
+    people.append(user)
+    data = {"status": "want_to_buy_shared", "split_buyers": people, "interested_buyer": people[0]}
+    get_client().table("gifts").update(data).eq("id", gift_id).execute()
+    _log_event(gift["list_id"], gift_id, gift["name"], user, "want_to_buy_shared" if started else "split_joined")
+    _invalidate()
+
+
+def leave_split(gift_id: int, user: str) -> None:
+    """Leave a split. When the last person leaves, the gift is available again."""
+    gift = _get_gift(gift_id)
+    if gift is None or gift.get("status") != "want_to_buy_shared":
+        return
+    people = [p for p in rules.split_participants(gift) if p != user]
+    if people:
+        data = {"split_buyers": people, "interested_buyer": people[0]}
+    else:
+        data = {"status": "available", "split_buyers": [], "interested_buyer": None}
+    get_client().table("gifts").update(data).eq("id", gift_id).execute()
+    _log_event(gift["list_id"], gift_id, gift["name"], user, "split_left")
+    _invalidate()
+
+
 def release_gift(gift_id: int, user: str) -> list[dict]:
-    """Undo a reservation / purchase: back to 'available'."""
-    data = {"status": "available", "interested_buyer": None, "bought_by": None, "bought_at": None}
+    """Undo a reservation / purchase. A bought split gift goes back to 'split', the others stay in it."""
+    gift = _get_gift(gift_id)
+    keeps_split = bool(gift and gift.get("status") == "bought" and rules.split_participants(gift))
+    if keeps_split:
+        data = {"status": "want_to_buy_shared", "bought_by": None, "bought_at": None}
+    else:
+        data = {
+            "status": "available", "interested_buyer": None, "split_buyers": [],
+            "bought_by": None, "bought_at": None,
+        }
     result = get_client().table("gifts").update(data).eq("id", gift_id).execute().data
     list_id, name = _gift_ref(gift_id)
     if list_id is not None:

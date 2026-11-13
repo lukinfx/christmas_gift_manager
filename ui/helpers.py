@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 import streamlit as st
 
 import auth
+import rules
 
 CURRENCY = "Kč"
 
@@ -11,7 +12,7 @@ CURRENCY = "Kč"
 STATUS = {
     "available": ("Available", "green", ":material/check_circle:"),
     "want_to_buy": ("Reserved by {who}", "orange", ":material/bookmark:"),
-    "want_to_buy_shared": ("Split buy: {who}", "blue", ":material/group:"),
+    "want_to_buy_shared": ("Split: {who}", "blue", ":material/group:"),
     "bought": ("Bought by {who}", "red", ":material/shopping_bag:"),
 }
 
@@ -60,8 +61,42 @@ def ago(iso: str) -> str:
 def status_badge(gift: dict) -> None:
     status = gift.get("status") or "available"
     template, color, icon = STATUS.get(status, STATUS["available"])
-    who = gift.get("bought_by") if status == "bought" else gift.get("interested_buyer")
-    st.badge(template.format(who=display_name(who)), icon=icon, color=color)
+    if status == "want_to_buy_shared":
+        who = ", ".join(display_name(p) for p in rules.split_participants(gift)) or "someone"
+    elif status == "bought":
+        who = display_name(gift.get("bought_by"))
+    else:
+        who = display_name(gift.get("interested_buyer"))
+    st.badge(template.format(who=who), icon=icon, color=color)
+
+
+def split_caption(gift: dict) -> None:
+    """'2 people · 500 Kč each' under a split gift."""
+    people = rules.split_participants(gift)
+    if gift.get("status") != "want_to_buy_shared" or not people:
+        return
+    text = f"{len(people)} {'person' if len(people) == 1 else 'people'} splitting"
+    if gift.get("price") is not None:
+        text += f" · {money(gift['price'] / len(people))} each"
+    st.caption(text)
+
+
+def go_to(year: int, list_id: int | None = None) -> None:
+    """Ask the page to switch to a year (and open a list) on the next run.
+    Applied by apply_go_to() before the year selector exists: a widget's value can't be
+    set from inside a dialog once the widget is on the page."""
+    st.session_state["_goto"] = {"year": year, "list_id": list_id}
+
+
+def apply_go_to() -> None:
+    target = st.session_state.pop("_goto", None)
+    if not target:
+        return
+    st.session_state["year"] = target["year"]
+    if target["list_id"] is not None:
+        st.session_state["open_list"] = target["list_id"]
+    else:
+        st.session_state.pop("open_list", None)
 
 
 def flash(message: str, icon: str = "✅") -> None:

@@ -36,6 +36,7 @@ def _gift_card(list_id: int, gift_id: int, username: str) -> None:
             st.badge(helpers.money(gift["price"]), icon=":material/payments:", color="gray")
         if show_private:
             helpers.status_badge(gift)
+            helpers.split_caption(gift)
         st.markdown(
             f"<span class='muted'>Added by {html.escape(helpers.display_name(gift['added_by']))}</span>",
             unsafe_allow_html=True,
@@ -47,8 +48,16 @@ def _gift_card(list_id: int, gift_id: int, username: str) -> None:
         if show_private:
             _actions(gift, username)
 
-        if rules.can_delete_gift(gift, username):
-            with st.popover("Delete", icon=":material/delete:", width="stretch"):
+        if rules.can_edit_gift(gift, username):
+            edit_col, move_col, delete_col = st.columns(3)
+            if edit_col.button("Edit", key=f"edit_{gift_id}", icon=":material/edit:", width="stretch"):
+                dialogs.edit_gift(gift, username)
+            if move_col.button(
+                "Move", key=f"move_{gift_id}", icon=":material/drive_file_move:", width="stretch",
+                help="Move to another list or year",
+            ):
+                dialogs.move_gift(gift, username)
+            with delete_col.popover("Delete", icon=":material/delete:", width="stretch"):
                 st.write("Delete this gift and its comments?")
                 if st.button("Yes, delete", key=f"del_{gift_id}", type="primary", width="stretch"):
                     db.delete_gift(gift_id)
@@ -65,15 +74,26 @@ def _actions(gift: dict, username: str) -> None:
         if a.button("Reserve", key=f"res_{gid}", width="stretch", help="I want to buy this"):
             db.update_gift_status(gid, "want_to_buy", username)
             st.rerun(scope="fragment")
-        if b.button("Split", key=f"split_{gid}", width="stretch", help="I'd like to split the cost"):
-            db.update_gift_status(gid, "want_to_buy_shared", username)
+        if b.button("Split", key=f"split_{gid}", width="stretch", help="Share the cost equally with others"):
+            db.join_split(gid, username)
             st.rerun(scope="fragment")
         if c.button("Bought", key=f"bought_{gid}", width="stretch", help="Already bought"):
             db.update_gift_status(gid, "bought", username)
             st.rerun(scope="fragment")
     else:
-        if status != "bought" and st.button("Mark bought", key=f"bought_{gid}", width="stretch"):
+        if rules.can_join_split(gift, username) and st.button(
+            "Join split", key=f"join_{gid}", width="stretch", icon=":material/group_add:",
+            help="Share the cost equally",
+        ):
+            db.join_split(gid, username)
+            st.rerun(scope="fragment")
+        if rules.can_mark_bought(gift, username) and st.button("Mark bought", key=f"bought_{gid}", width="stretch"):
             db.update_gift_status(gid, "bought", username)
+            st.rerun(scope="fragment")
+        if rules.can_leave_split(gift, username) and st.button(
+            "Leave split", key=f"leave_{gid}", width="stretch", icon=":material/group_remove:"
+        ):
+            db.leave_split(gid, username)
             st.rerun(scope="fragment")
         if rules.can_release_gift(gift, username) and st.button(
             "Release", key=f"rel_{gid}", width="stretch", icon=":material/undo:"

@@ -68,40 +68,109 @@ def start_new_year(user: dict, all_lists: list[dict], current_year: int) -> None
     )
     if st.button(f"Create {len(chosen)} list(s) for {target_year}", type="primary", width="stretch", disabled=not chosen):
         created = db.create_gift_lists([by_id[i] for i in chosen], user["username"], target_year)
-        st.session_state["year"] = target_year
+        helpers.go_to(target_year)
         helpers.flash(f"Created {created} list(s) for {target_year}", "🎄")
         st.rerun()
+
+
+def _price_text(price) -> str:
+    if price is None:
+        return ""
+    return str(int(price)) if float(price).is_integer() else str(price)
+
+
+def _gift_form(key: str, submit_label: str, gift: dict | None = None) -> dict | None:
+    """The gift fields, shared by 'Add' and 'Edit'. Returns validated values on a valid submit."""
+    gift = gift or {}
+    with st.form(key, border=False):
+        name = st.text_input("Gift name *", value=gift.get("name") or "")
+        description = st.text_input("Description (optional)", value=gift.get("description") or "")
+        url = st.text_input("Link to shop (optional)", value=gift.get("url") or "", placeholder="https://…")
+        c1, c2 = st.columns(2)
+        price_raw = c1.text_input(f"Price in {helpers.CURRENCY} (optional)", value=_price_text(gift.get("price")))
+        image_raw = c2.text_input("Image URL (optional)", value=gift.get("image_url") or "")
+        submitted = st.form_submit_button(submit_label, type="primary", width="stretch")
+
+    if not submitted:
+        return None
+    clean_url = rules.clean_url(url)
+    clean_image = rules.clean_url(image_raw)
+    price = rules.parse_price(price_raw)
+    if not name.strip():
+        st.error("Please enter a gift name.")
+    elif url.strip() and not clean_url:
+        st.error("That doesn't look like a valid shop link.")
+    elif image_raw.strip() and not clean_image:
+        st.error("That doesn't look like a valid image link.")
+    elif price_raw.strip() and price is None:
+        st.error("Price must be a number, e.g. 1200.")
+    else:
+        return {
+            "name": name.strip(), "description": description.strip(),
+            "url": clean_url, "price": price, "image_url": clean_image,
+        }
+    return None
 
 
 @st.dialog("Add a gift")
 def add_gift(gift_list: dict, username: str) -> None:
     st.caption(f"Adding to **{gift_list['name']}**")
-    with st.form(f"add_gift_{gift_list['id']}", border=False):
-        name = st.text_input("Gift name *")
-        description = st.text_input("Description (optional)")
-        url = st.text_input("Link to shop (optional)", placeholder="https://…")
-        c1, c2 = st.columns(2)
-        price_raw = c1.text_input(f"Price in {helpers.CURRENCY} (optional)")
-        image_raw = c2.text_input("Image URL (optional)")
-        if st.form_submit_button("Add gift", type="primary", width="stretch"):
-            clean_url = rules.clean_url(url)
-            clean_image = rules.clean_url(image_raw)
-            price = rules.parse_price(price_raw)
-            if not name.strip():
-                st.error("Please enter a gift name.")
-            elif url.strip() and not clean_url:
-                st.error("That doesn't look like a valid shop link.")
-            elif image_raw.strip() and not clean_image:
-                st.error("That doesn't look like a valid image link.")
-            elif price_raw.strip() and price is None:
-                st.error("Price must be a number, e.g. 1200.")
-            else:
-                db.add_gift(
-                    gift_list["id"], name.strip(), description.strip(), username,
-                    url=clean_url, price=price, image_url=clean_image,
-                )
-                helpers.flash("Gift added")
-                st.rerun()
+    values = _gift_form(f"add_gift_{gift_list['id']}", "Add gift")
+    if values:
+        db.add_gift(gift_list["id"], values["name"], values["description"], username,
+                    url=values["url"], price=values["price"], image_url=values["image_url"])
+        helpers.flash("Gift added")
+        st.rerun()
+
+
+@st.dialog("Edit gift")
+def edit_gift(gift: dict, username: str) -> None:
+    if not rules.can_edit_gift(gift, username):  # the button is hidden for others; never trust the UI alone
+        st.error("Only the person who added this gift can edit it.")
+        return
+    values = _gift_form(f"edit_gift_{gift['id']}", "Save changes", gift)
+    if values:
+        if db.update_gift(gift["id"], username, **values):
+            helpers.flash("Gift updated")
+        else:
+            helpers.flash("Couldn't update this gift", "⚠️")
+        st.rerun()
+
+
+@st.dialog("Move gift")
+def move_gift(gift: dict, username: str) -> None:
+    if not rules.can_move_gift(gift, username):  # the button is hidden for others; never trust the UI alone
+        st.error("Only the person who added this gift can move it.")
+        return
+
+    all_lists = db.get_all_lists()
+    here = next((l for l in all_lists if l["id"] == gift["list_id"]), None)
+    st.markdown(f"Move **{gift['name']}**" + (f" out of *{here['name']}* ({here['year']})" if here else ""))
+    if (gift.get("status") or "available") != "available":
+        st.warning("It has been reserved or bought. The status resets to available in the new list.")
+
+    years = sorted({l["year"] for l in all_lists}, reverse=True)
+    year = st.selectbox("Year", years)
+    targets = rules.move_targets(all_lists, gift["list_id"], year)
+    if not targets:
+        st.info(f"There are no other lists in {year}. Create one first.")
+        return
+
+    by_id = {l["id"]: l for l in targets}
+    target_id = st.selectbox(
+        "List",
+        list(by_id),
+        format_func=lambda i: f"{by_id[i]['name']}  ·  for "
+        + ", ".join(helpers.display_name(r) for r in by_id[i]["recipients"]),
+    )
+    if st.button("Move gift", type="primary", width="stretch"):
+        if db.move_gift(gift["id"], username, target_id):
+            # follow the gift: show the list it now lives in
+            helpers.go_to(by_id[target_id]["year"], target_id)
+            helpers.flash(f"Moved to {by_id[target_id]['name']}", "📦")
+        else:
+            helpers.flash("Couldn't move this gift", "⚠️")
+        st.rerun()
 
 
 @st.dialog("Comments")

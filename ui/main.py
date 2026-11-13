@@ -37,6 +37,7 @@ def _header(user: dict, days: int) -> None:
 
 def render() -> None:
     styles.inject()
+    helpers.apply_go_to()  # must run before the year selector is created
     helpers.show_flash()
     user = auth.current_user()
     username = user["username"]
@@ -47,10 +48,13 @@ def render() -> None:
     all_lists = db.get_all_lists()
     years_with_lists = sorted({l["year"] for l in all_lists}, reverse=True)
     years = sorted(set(years_with_lists) | {today.year}, reverse=True)
+    # The default applies only the first time. Once "year" is in session state (also when set by
+    # go_to), passing a default as well makes Streamlit warn about conflicting values.
+    first_visit = "year" not in st.session_state
     year = st.segmented_control(
         "Year",
         years,
-        default=rules.default_year(years_with_lists, today.year),
+        default=rules.default_year(years_with_lists, today.year) if first_visit else None,
         required=True,
         key="year",
     )

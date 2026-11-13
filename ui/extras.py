@@ -12,6 +12,9 @@ EVENT_TEXT = {
     "want_to_buy": ("reserved", ":material/bookmark:"),
     "want_to_buy_shared": ("offered to split", ":material/group:"),
     "bought": ("bought", ":material/shopping_bag:"),
+    "gift_moved": ("moved", ":material/drive_file_move:"),
+    "split_joined": ("joined the split for", ":material/group_add:"),
+    "split_left": ("left the split for", ":material/group_remove:"),
     "released": ("released", ":material/undo:"),
     "comment": ("commented on", ":material/chat_bubble:"),
 }
@@ -24,7 +27,7 @@ def purchases(lists_in_year: list[dict], username: str) -> None:
         return
 
     everything = [g for block in summary for g in block["gifts"]]
-    totals = rules.money_totals(everything)
+    totals = rules.money_totals(everything, username)
     c1, c2, c3 = st.columns(3)
     c1.metric("Reserved", helpers.money(totals["reserved"]) or f"0 {helpers.CURRENCY}", border=True)
     c2.metric("Bought", helpers.money(totals["bought"]) or f"0 {helpers.CURRENCY}", border=True)
@@ -40,7 +43,11 @@ def purchases(lists_in_year: list[dict], username: str) -> None:
             with st.container(border=True):
                 name_col, price_col, status_col = st.columns([3, 1, 2], vertical_alignment="center")
                 name_col.markdown(f"**{gift['name']}**")
-                price_col.write(helpers.money(gift.get("price")) or "–")
+                share = rules.my_share(gift, username)
+                price_col.write(helpers.money(share) or "–")
+                people = rules.split_participants(gift)
+                if len(people) > 1 and gift.get("price") is not None:
+                    price_col.caption(f"{helpers.money(gift['price'])} ÷ {len(people)}")
                 with status_col:
                     helpers.status_badge(gift)
 
@@ -61,7 +68,7 @@ def activity(events: list[dict], lists_by_id: dict[int, dict], cutoff, username:
         gift = html.escape(ev.get("gift_name") or "a gift")
         where = html.escape(gift_list["name"])
         st.markdown(
-            f"{tag}{icon} <b>{who}</b> {verb} <b>{gift}</b> in {where} "
+            f"{tag}{icon} <b>{who}</b> {verb} <b>{gift}</b> {'into' if ev['kind'] == 'gift_moved' else 'in'} {where} "
             f"<span class='muted'>· {helpers.ago(ev['created_at'])}</span>",
             unsafe_allow_html=True,
         )

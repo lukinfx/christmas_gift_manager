@@ -31,11 +31,50 @@ def can_see_status(gift_list: dict, username: str) -> bool:
 def can_release_gift(gift: dict, username: str) -> bool:
     """Only the person who reserved/bought a gift can undo it."""
     status = gift.get("status", "available")
-    if status in ("want_to_buy", "want_to_buy_shared"):
+    if status == "want_to_buy":
         return gift.get("interested_buyer") == username
     if status == "bought":
         return gift.get("bought_by") == username
-    return False
+    return False  # split gifts: each person leaves the split themselves (can_leave_split)
+
+
+# ---------- split buying ----------
+
+def split_participants(gift: dict) -> list[str]:
+    """Everyone sharing the cost. Falls back to the single buyer for older split rows."""
+    people = list(gift.get("split_buyers") or [])
+    if not people and gift.get("status") == "want_to_buy_shared" and gift.get("interested_buyer"):
+        people = [gift["interested_buyer"]]
+    return people
+
+
+def my_share(gift: dict, username: str) -> float | None:
+    """What this person pays: price / number of people in an equal split, else the full price."""
+    price = gift.get("price")
+    if price is None:
+        return None
+    people = split_participants(gift)
+    if username in people and gift.get("status") in ("want_to_buy_shared", "bought"):
+        return round(float(price) / len(people), 2)
+    return float(price)
+
+
+def can_join_split(gift: dict, username: str) -> bool:
+    return gift.get("status") == "want_to_buy_shared" and username not in split_participants(gift)
+
+
+def can_leave_split(gift: dict, username: str) -> bool:
+    return gift.get("status") == "want_to_buy_shared" and username in split_participants(gift)
+
+
+def can_mark_bought(gift: dict, username: str) -> bool:
+    """Reserved gifts: anyone. Split gifts: only the people in the split."""
+    status = gift.get("status", "available")
+    if status == "bought":
+        return False
+    if status == "want_to_buy_shared":
+        return username in split_participants(gift)
+    return True
 
 
 def visible_events(events: list[dict], lists_by_id: dict[int, dict], username: str) -> list[dict]:
@@ -54,6 +93,21 @@ def visible_events(events: list[dict], lists_by_id: dict[int, dict], username: s
 
 def can_delete_gift(gift: dict, username: str) -> bool:
     return gift["added_by"] == username
+
+
+def can_edit_gift(gift: dict, username: str) -> bool:
+    """Only the person who added a gift may change it."""
+    return gift["added_by"] == username
+
+
+def can_move_gift(gift: dict, username: str) -> bool:
+    """Only the person who added a gift may move it to another list."""
+    return gift["added_by"] == username
+
+
+def move_targets(all_lists: list[dict], current_list_id: int, year: int) -> list[dict]:
+    """Lists in `year` a gift can be moved to (every list of that year except where it already is)."""
+    return [l for l in all_lists if l["year"] == year and l["id"] != current_list_id]
 
 
 # ---------- input cleaning ----------
@@ -116,28 +170,32 @@ def purchase_summary(lists: list[dict], gifts_by_list: dict, username: str) -> l
         mine = []
         for gift in gifts_by_list.get(gift_list["id"], []):
             status = gift.get("status")
-            if status in ("want_to_buy", "want_to_buy_shared") and gift.get("interested_buyer") == username:
+            in_split = username in split_participants(gift)
+            if status == "want_to_buy" and gift.get("interested_buyer") == username:
                 mine.append(gift)
-            elif status == "bought" and gift.get("bought_by") == username:
+            elif status == "want_to_buy_shared" and in_split:
+                mine.append(gift)
+            elif status == "bought" and (gift.get("bought_by") == username or in_split):
                 mine.append(gift)
         if mine:
             out.append({"list": gift_list, "gifts": mine})
     return out
 
 
-def money_totals(gifts: list[dict]) -> dict:
-    """Totals for reserved vs bought; gifts without a price are counted separately."""
+def money_totals(gifts: list[dict], username: str) -> dict:
+    """What `username` pays, reserved vs bought (split gifts count only their share).
+    Gifts without a price are counted separately."""
     reserved = bought = 0.0
     unpriced = 0
     for gift in gifts:
-        price = gift.get("price")
-        if price is None:
+        share = my_share(gift, username)
+        if share is None:
             unpriced += 1
             continue
         if gift.get("status") == "bought":
-            bought += float(price)
+            bought += share
         else:
-            reserved += float(price)
+            reserved += share
     return {"reserved": reserved, "bought": bought, "unpriced": unpriced}
 
 

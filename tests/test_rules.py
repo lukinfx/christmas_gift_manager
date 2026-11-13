@@ -104,7 +104,7 @@ def test_purchase_summary_and_totals():
     summary = rules.purchase_summary(lists, gifts, "me")
     assert [s["list"]["id"] for s in summary] == [1]  # list 2: I'm the recipient
     assert [g["id"] for g in summary[0]["gifts"]] == [1, 2, 4]
-    assert rules.money_totals(summary[0]["gifts"]) == {"reserved": 100.0, "bought": 250.5, "unpriced": 1}
+    assert rules.money_totals(summary[0]["gifts"], "me") == {"reserved": 100.0, "bought": 250.5, "unpriced": 1}
 
 
 def test_parse_ts_and_new_events():
@@ -141,3 +141,60 @@ def test_is_recent():
     assert not rules.is_recent("2026-11-17T11:00:00+00:00", now)   # 3 days 1 h
     assert not rules.is_recent("2026-11-21T00:00:00+00:00", now)   # in the future (clock skew)
     assert not rules.is_recent(None, now) and not rules.is_recent("junk", now)
+
+
+def _split(price, people, status="want_to_buy_shared", **extra):
+    return {"id": 1, "status": status, "price": price, "split_buyers": people,
+            "interested_buyer": people[0] if people else None, **extra}
+
+
+def test_split_share_is_equal_parts():
+    assert rules.my_share(_split(100, ["a", "b"]), "a") == 50.0
+    assert rules.my_share(_split(100, ["a", "b", "c"]), "c") == 33.33
+    assert rules.my_share(_split(100, ["a"]), "a") == 100.0
+    assert rules.my_share(_split(None, ["a", "b"]), "a") is None
+    # not part of the split -> not their share
+    assert rules.my_share(_split(100, ["a", "b"]), "z") == 100.0
+    # bought split gift keeps the split
+    assert rules.my_share(_split(90, ["a", "b", "c"], status="bought", bought_by="a"), "b") == 30.0
+
+
+def test_split_participants_fallback_for_old_rows():
+    old = {"status": "want_to_buy_shared", "interested_buyer": "a", "split_buyers": []}
+    assert rules.split_participants(old) == ["a"]
+    assert rules.split_participants({"status": "available"}) == []
+
+
+def test_join_leave_and_mark_bought_permissions():
+    g = _split(100, ["a", "b"])
+    assert rules.can_join_split(g, "c") and not rules.can_join_split(g, "a")
+    assert rules.can_leave_split(g, "a") and not rules.can_leave_split(g, "c")
+    assert rules.can_mark_bought(g, "a") and not rules.can_mark_bought(g, "c")
+    assert rules.can_mark_bought({"status": "want_to_buy", "interested_buyer": "a"}, "z")
+    assert not rules.can_mark_bought({"status": "bought"}, "a")
+    assert not rules.can_release_gift(g, "a")  # split gifts use "leave", not "release"
+
+
+def test_purchases_include_split_gifts_with_my_share():
+    lists = [{"id": 1, "recipients": ["anna"]}]
+    gifts = {1: [_split(100, ["me", "carl"], id=7), _split(60, ["carl", "dana"], id=8),
+                 _split(90, ["me", "carl", "dana"], id=9, status="bought", bought_by="carl")]}
+    mine = rules.purchase_summary(lists, gifts, "me")[0]["gifts"]
+    assert [g["id"] for g in mine] == [7, 9]
+    assert rules.money_totals(mine, "me") == {"reserved": 50.0, "bought": 30.0, "unpriced": 0}
+
+
+def test_only_author_can_edit():
+    assert rules.can_edit_gift({"added_by": "anna"}, "anna")
+    assert not rules.can_edit_gift({"added_by": "anna"}, "carl")
+
+
+def test_move_permissions_and_targets():
+    assert rules.can_move_gift({"added_by": "anna"}, "anna")
+    assert not rules.can_move_gift({"added_by": "anna"}, "carl")
+    lists = [
+        {"id": 1, "year": 2025}, {"id": 2, "year": 2026}, {"id": 3, "year": 2026}, {"id": 4, "year": 2025},
+    ]
+    assert [l["id"] for l in rules.move_targets(lists, 2, 2026)] == [3]   # not the list it is already in
+    assert [l["id"] for l in rules.move_targets(lists, 2, 2025)] == [1, 4]
+    assert rules.move_targets(lists, 2, 2030) == []
