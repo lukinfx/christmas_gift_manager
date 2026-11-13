@@ -6,7 +6,7 @@ from ui import login, main
 
 def run() -> None:
     """Called on every Streamlit rerun by streamlit_app.py."""
-    st.set_page_config(page_title="Christmas Gift Manager", page_icon="🎄")
+    st.set_page_config(page_title="Christmas Gift Manager", page_icon="🎄", layout="wide")
 
     if auth.google_enabled():
         if not auth.google_logged_in():

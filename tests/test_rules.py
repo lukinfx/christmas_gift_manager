@@ -57,3 +57,87 @@ def test_events_hidden_for_lists_where_user_is_recipient():
     events = [{"list_id": 1, "kind": "bought"}, {"list_id": 2, "kind": "bought"}, {"list_id": 99, "kind": "x"}]
     assert [e["list_id"] for e in rules.visible_events(events, lists, "anna")] == [2]
     assert [e["list_id"] for e in rules.visible_events(events, lists, "carl")] == [1, 2]
+
+
+from datetime import date
+
+
+def test_clean_url():
+    assert rules.clean_url("example.com/x") == "https://example.com/x"
+    assert rules.clean_url("http://shop.cz") == "http://shop.cz"
+    assert rules.clean_url("javascript:alert(1)") is None
+    assert rules.clean_url("ftp://x.com") is None
+    assert rules.clean_url("not a url") is None
+    assert rules.clean_url("   ") is None and rules.clean_url(None) is None
+
+
+def test_parse_price():
+    assert rules.parse_price("1 200") == 1200.0
+    assert rules.parse_price("1200,50 Kč") == 1200.5
+    assert rules.parse_price("") is None and rules.parse_price("abc") is None
+    assert rules.parse_price("1.2.3") is None
+
+
+def test_days_until_christmas():
+    assert rules.days_until_christmas(date(2026, 12, 24)) == 0
+    assert rules.days_until_christmas(date(2026, 12, 20)) == 4
+    assert rules.days_until_christmas(date(2026, 12, 25)) == 364
+
+
+def test_default_year():
+    assert rules.default_year([2025], 2026) == 2025
+    assert rules.default_year([2025, 2026], 2026) == 2026
+    assert rules.default_year([], 2026) == 2026
+
+
+def test_purchase_summary_and_totals():
+    lists = [{"id": 1, "recipients": ["anna"]}, {"id": 2, "recipients": ["me"]}]
+    gifts = {
+        1: [
+            {"id": 1, "status": "want_to_buy", "interested_buyer": "me", "price": 100},
+            {"id": 2, "status": "bought", "bought_by": "me", "price": 250.5},
+            {"id": 3, "status": "bought", "bought_by": "other", "price": 999},
+            {"id": 4, "status": "want_to_buy_shared", "interested_buyer": "me", "price": None},
+        ],
+        2: [{"id": 5, "status": "bought", "bought_by": "me", "price": 5}],
+    }
+    summary = rules.purchase_summary(lists, gifts, "me")
+    assert [s["list"]["id"] for s in summary] == [1]  # list 2: I'm the recipient
+    assert [g["id"] for g in summary[0]["gifts"]] == [1, 2, 4]
+    assert rules.money_totals(summary[0]["gifts"]) == {"reserved": 100.0, "bought": 250.5, "unpriced": 1}
+
+
+def test_parse_ts_and_new_events():
+    since = rules.parse_ts("2026-11-01T10:00:00+00:00")
+    assert rules.parse_ts("nonsense") is None and rules.parse_ts(None) is None
+    events = [
+        {"list_id": 1, "actor": "carl", "created_at": "2026-11-02T08:00:00.123456+00:00"},  # new
+        {"list_id": 1, "actor": "me", "created_at": "2026-11-02T09:00:00+00:00"},           # mine
+        {"list_id": 2, "actor": "carl", "created_at": "2026-10-30T09:00:00+00:00"},         # old
+        {"list_id": 2, "actor": "dana", "created_at": "2026-11-03T09:00:00Z"},              # new
+    ]
+    new = rules.new_events(events, since, "me")
+    assert [e["actor"] for e in new] == ["carl", "dana"]
+    assert rules.count_by_list(new) == {1: 1, 2: 1}
+    assert rules.new_events(events, None, "me") == []
+
+
+def test_is_admin():
+    assert rules.is_admin({"is_admin": True})
+    assert not rules.is_admin({"is_admin": False}) and not rules.is_admin({}) and not rules.is_admin(None)
+
+
+def test_lists_to_copy_skips_existing():
+    src = [{"name": "Vojta dárky", "recipients": ["vojta"]}, {"name": "Rodiče", "recipients": ["tomas", "lucie"]}]
+    tgt = [{"name": " vojta dárky ", "recipients": ["vojta"]}, {"name": "Rodiče", "recipients": ["lucie", "tomas"]}]
+    assert rules.lists_to_copy(src, tgt) == []
+    assert rules.lists_to_copy(src, tgt[:1]) == [src[1]]
+
+
+def test_is_recent():
+    from datetime import datetime, timezone
+    now = datetime(2026, 11, 20, 12, 0, tzinfo=timezone.utc)
+    assert rules.is_recent("2026-11-18T13:00:00+00:00", now)       # 2 days 23 h
+    assert not rules.is_recent("2026-11-17T11:00:00+00:00", now)   # 3 days 1 h
+    assert not rules.is_recent("2026-11-21T00:00:00+00:00", now)   # in the future (clock skew)
+    assert not rules.is_recent(None, now) and not rules.is_recent("junk", now)

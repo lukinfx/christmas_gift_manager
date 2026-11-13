@@ -59,6 +59,12 @@ def google_email() -> str:
     return (st.user.get("email") or "").strip().lower()
 
 
+def google_picture() -> str | None:
+    if google_enabled() and google_logged_in():
+        return st.user.get("picture")
+    return None
+
+
 def _google_user() -> dict | None:
     """Map the verified Google email to an app user, or None if not on the guest list."""
     if not google_logged_in() or not st.user.get("email_verified", True):

@@ -115,9 +115,17 @@ def create_gift_list(name: str, recipients: list[str], created_by: str, year: in
     return result
 
 
-def set_list_archived(list_id: int, archived: bool) -> None:
-    get_client().table("gift_lists").update({"archived": archived}).eq("id", list_id).execute()
+def create_gift_lists(rows: list[dict], created_by: str, year: int) -> int:
+    """Create several empty lists for a year in one insert. Returns how many were created."""
+    if not rows:
+        return 0
+    data = [
+        {"name": r["name"], "recipients": r["recipients"], "created_by": created_by, "year": year}
+        for r in rows
+    ]
+    result = get_client().table("gift_lists").insert(data).execute().data
     _invalidate()
+    return len(result)
 
 
 def add_gift(
@@ -204,3 +212,4 @@ def get_recent_events(limit: int = 200) -> list[dict]:
 
 def touch_last_seen(username: str) -> None:
     get_client().table("app_users").update({"last_seen_at": _now()}).eq("username", username).execute()
+    _invalidate()  # app_users is cached; the next read must see the new timestamp
