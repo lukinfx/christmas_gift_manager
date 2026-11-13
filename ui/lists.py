@@ -59,7 +59,8 @@ def _gift_card(list_id: int, gift_id: int, username: str) -> None:
                 help="Move to a list in another year",
             ):
                 dialogs.move_gift(gift, username)
-            with delete_col.popover("Delete", icon=":material/delete:", width="stretch"):
+            # icon-only: a "Delete" label doesn't fit next to Edit and Move in a narrow card
+            with delete_col.popover("", icon=":material/delete:", help="Delete this gift", width="stretch"):
                 st.write("Delete this gift and its comments?")
                 if st.button("Yes, delete", key=f"del_{gift_id}", type="primary", width="stretch"):
                     db.delete_gift(gift_id)

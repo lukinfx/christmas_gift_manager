@@ -19,7 +19,19 @@ CSS = """
 }
 
 div[data-testid="stVerticalBlockBorderWrapper"] { border-radius: 14px; }
-[data-testid="stImage"] img { border-radius: 10px; max-height: 190px; object-fit: cover; }
+/* Pictures keep their natural proportions, centred and never cropped: the card grows to fit.
+   Very tall photos are capped so one gift can't take over the page. */
+/* Streamlit shrink-wraps the picture's wrappers to its width inside a block frame, so the frame
+   itself has to do the centring. */
+[data-testid="stFullScreenFrame"]:has([data-testid="stImage"]) { display: flex; justify-content: center; }
+[data-testid="stImage"] img {
+    border-radius: 10px;
+    width: auto !important;
+    max-width: 100% !important;
+    height: auto !important;
+    max-height: 340px !important;
+    object-fit: contain !important;
+}
 .gift-title { font-weight: 650; font-size: 1.05rem; line-height: 1.3; margin: .1rem 0 .15rem; }
 .newtag {
     background: #c0392b; color: #fff; border-radius: 999px;
