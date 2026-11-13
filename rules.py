@@ -100,9 +100,10 @@ def can_edit_gift(gift: dict, username: str) -> bool:
     return gift["added_by"] == username
 
 
-def can_move_gift(gift: dict, username: str) -> bool:
-    """Only the person who added a gift may move it to another list."""
-    return gift["added_by"] == username
+def can_move_gift(gift: dict, username: str, list_year: int, current_year: int) -> bool:
+    """Only the author may move a gift, and only out of a list from another year
+    (moving gifts around inside the current year would mix up reservations and statuses)."""
+    return gift["added_by"] == username and list_year != current_year
 
 
 def move_targets(all_lists: list[dict], current_list_id: int, year: int) -> list[dict]:

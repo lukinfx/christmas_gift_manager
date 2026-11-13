@@ -69,9 +69,12 @@ def test_missing_gift_is_rejected(monkeypatch):
 
 # ---------- move_gift ----------
 
-def _setup_move(monkeypatch, gift, target):
+def _setup_move(monkeypatch, gift, target, source_year=2025):
     client = _setup(monkeypatch, gift)
-    monkeypatch.setattr(db, "_get_list", lambda lid: target)
+    lists = {1: {"id": 1, "year": source_year}}
+    if target:
+        lists[target["id"]] = target
+    monkeypatch.setattr(db, "_get_list", lambda lid: lists.get(lid))
     events = []
     monkeypatch.setattr(db, "_log_event", lambda *a: events.append(a))
     return client, events
@@ -83,7 +86,7 @@ BOUGHT = {"id": 5, "added_by": "anna", "list_id": 1, "name": "Lego", "status": "
 
 def test_author_moves_gift_and_status_is_reset(monkeypatch):
     client, events = _setup_move(monkeypatch, BOUGHT, {"id": 9, "year": 2026})
-    assert db.move_gift(5, "anna", 9) is True
+    assert db.move_gift(5, "anna", 9, 2026) is True
     update = next(e for e in client.log if e[0] == "update")[1]
     assert update == {"list_id": 9, "status": "available", "interested_buyer": None,
                       "split_buyers": [], "bought_by": None, "bought_at": None}
@@ -92,13 +95,19 @@ def test_author_moves_gift_and_status_is_reset(monkeypatch):
 
 def test_only_author_can_move(monkeypatch):
     client, events = _setup_move(monkeypatch, BOUGHT, {"id": 9})
-    assert db.move_gift(5, "carl", 9) is False
+    assert db.move_gift(5, "carl", 9, 2026) is False
     assert not any(e[0] == "update" for e in client.log) and events == []
 
 
 def test_move_rejects_same_list_and_unknown_target(monkeypatch):
     client, _ = _setup_move(monkeypatch, BOUGHT, {"id": 1})
-    assert db.move_gift(5, "anna", 1) is False            # already there
+    assert db.move_gift(5, "anna", 1, 2026) is False            # already there
     client, _ = _setup_move(monkeypatch, BOUGHT, None)
-    assert db.move_gift(5, "anna", 99) is False           # target list doesn't exist
+    assert db.move_gift(5, "anna", 99, 2026) is False           # target list doesn't exist
     assert not any(e[0] == "update" for e in client.log)
+
+
+def test_cannot_move_out_of_a_current_year_list(monkeypatch):
+    client, events = _setup_move(monkeypatch, BOUGHT, {"id": 9, "year": 2026}, source_year=2026)
+    assert db.move_gift(5, "anna", 9, 2026) is False   # source list is from the current year
+    assert not any(e[0] == "update" for e in client.log) and events == []

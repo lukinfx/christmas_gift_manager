@@ -198,14 +198,15 @@ def _get_list(list_id: int) -> dict | None:
     return rows[0] if rows else None
 
 
-def move_gift(gift_id: int, user: str, target_list_id: int) -> bool:
+def move_gift(gift_id: int, user: str, target_list_id: int, current_year: int) -> bool:
     """Move a gift to another list. Only its author may. Reservations/purchases made for the old
     list are cleared (the gift starts fresh as 'available'); comments stay with the gift."""
     gift = _get_gift(gift_id)
     target = _get_list(target_list_id)
     if gift is None or target is None or gift["list_id"] == target_list_id:
         return False
-    if not rules.can_move_gift(gift, user):
+    source = _get_list(gift["list_id"])
+    if source is None or not rules.can_move_gift(gift, user, source["year"], current_year):
         return False
     data = {
         "list_id": target_list_id,

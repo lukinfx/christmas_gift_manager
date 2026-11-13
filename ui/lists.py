@@ -49,12 +49,14 @@ def _gift_card(list_id: int, gift_id: int, username: str) -> None:
             _actions(gift, username)
 
         if rules.can_edit_gift(gift, username):
-            edit_col, move_col, delete_col = st.columns(3)
+            can_move = rules.can_move_gift(gift, username, gift_list["year"], helpers.today().year)
+            cols = st.columns(3 if can_move else 2)  # no empty gap when Move isn't offered
+            edit_col, delete_col = cols[0], cols[-1]
             if edit_col.button("Edit", key=f"edit_{gift_id}", icon=":material/edit:", width="stretch"):
                 dialogs.edit_gift(gift, username)
-            if move_col.button(
+            if can_move and cols[1].button(
                 "Move", key=f"move_{gift_id}", icon=":material/drive_file_move:", width="stretch",
-                help="Move to another list or year",
+                help="Move to a list in another year",
             ):
                 dialogs.move_gift(gift, username)
             with delete_col.popover("Delete", icon=":material/delete:", width="stretch"):

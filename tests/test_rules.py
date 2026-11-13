@@ -190,8 +190,10 @@ def test_only_author_can_edit():
 
 
 def test_move_permissions_and_targets():
-    assert rules.can_move_gift({"added_by": "anna"}, "anna")
-    assert not rules.can_move_gift({"added_by": "anna"}, "carl")
+    gift = {"added_by": "anna"}
+    assert rules.can_move_gift(gift, "anna", list_year=2025, current_year=2026)
+    assert not rules.can_move_gift(gift, "carl", 2025, 2026)          # not the author
+    assert not rules.can_move_gift(gift, "anna", 2026, 2026)          # list is from the current year
     lists = [
         {"id": 1, "year": 2025}, {"id": 2, "year": 2026}, {"id": 3, "year": 2026}, {"id": 4, "year": 2025},
     ]

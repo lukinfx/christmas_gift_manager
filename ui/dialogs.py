@@ -139,13 +139,15 @@ def edit_gift(gift: dict, username: str) -> None:
 
 @st.dialog("Move gift")
 def move_gift(gift: dict, username: str) -> None:
-    if not rules.can_move_gift(gift, username):  # the button is hidden for others; never trust the UI alone
-        st.error("Only the person who added this gift can move it.")
-        return
-
     all_lists = db.get_all_lists()
     here = next((l for l in all_lists if l["id"] == gift["list_id"]), None)
-    st.markdown(f"Move **{gift['name']}**" + (f" out of *{here['name']}* ({here['year']})" if here else ""))
+    current_year = helpers.today().year
+    if here is None or not rules.can_move_gift(gift, username, here["year"], current_year):
+        # the button is hidden in these cases; never trust the UI alone
+        st.error("Only the person who added a gift can move it, and only out of a list from another year.")
+        return
+
+    st.markdown(f"Move **{gift['name']}** out of *{here['name']}* ({here['year']})")
     if (gift.get("status") or "available") != "available":
         st.warning("It has been reserved or bought. The status resets to available in the new list.")
 
@@ -164,7 +166,7 @@ def move_gift(gift: dict, username: str) -> None:
         + ", ".join(helpers.display_name(r) for r in by_id[i]["recipients"]),
     )
     if st.button("Move gift", type="primary", width="stretch"):
-        if db.move_gift(gift["id"], username, target_id):
+        if db.move_gift(gift["id"], username, target_id, current_year):
             # follow the gift: show the list it now lives in
             helpers.go_to(by_id[target_id]["year"], target_id)
             helpers.flash(f"Moved to {by_id[target_id]['name']}", "📦")
