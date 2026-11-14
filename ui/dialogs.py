@@ -123,36 +123,61 @@ def add_gift(gift_list: dict, username: str) -> None:
         st.rerun()
 
 
-@st.dialog("Edit gift")
-def edit_gift(gift: dict, username: str) -> None:
-    if not rules.can_edit_gift(gift, username):  # the button is hidden for others; never trust the UI alone
+# ---- Sections of the gift modal (ui/lists.py). Plain functions, not dialogs: Streamlit can't open a
+# ---- dialog from inside a dialog, so Edit / Move / Comments live in the one gift dialog.
+# ---- They run inside that dialog's fragment, so st.rerun(scope="fragment") refreshes just the modal.
+
+def edit_form(gift: dict, username: str, on_saved) -> None:
+    if not rules.can_edit_gift(gift, username):  # the section is hidden for others; never trust the UI alone
         st.error("Only the person who added this gift can edit it.")
         return
     values = _gift_form(f"edit_gift_{gift['id']}", "Save changes", gift)
     if values:
         if db.update_gift(gift["id"], username, **values):
-            helpers.flash("Gift updated")
+            st.toast("Gift updated", icon="✅")
         else:
-            helpers.flash("Couldn't update this gift", "⚠️")
-        st.rerun()
+            st.toast("Couldn't update this gift", icon="⚠️")
+        on_saved()
 
 
-@st.dialog("Move gift")
-def move_gift(gift: dict, username: str) -> None:
+def delete_section(gift: dict, username: str) -> None:
+    """Two-step delete (no popover: keep it simple inside a modal)."""
+    if not rules.can_delete_gift(gift, username):
+        return
+    st.divider()
+    key = f"confirm_delete_{gift['id']}"
+    if not st.session_state.get(key):
+        if st.button("Delete this gift", icon=":material/delete:", width="stretch", key=f"ask_del_{gift['id']}"):
+            st.session_state[key] = True
+            st.rerun(scope="fragment")
+        return
+    st.warning("Delete this gift and its comments? This can't be undone.")
+    yes, no = st.columns(2)
+    if yes.button("Yes, delete", type="primary", width="stretch", key=f"yes_del_{gift['id']}"):
+        db.delete_gift(gift["id"])
+        st.session_state.pop(key, None)
+        helpers.flash("Gift deleted", "🗑️")
+        st.rerun()  # full rerun closes the modal
+    if no.button("Cancel", width="stretch", key=f"no_del_{gift['id']}"):
+        st.session_state.pop(key, None)
+        st.rerun(scope="fragment")
+
+
+def move_form(gift: dict, username: str) -> None:
     all_lists = db.get_all_lists()
     here = next((l for l in all_lists if l["id"] == gift["list_id"]), None)
     current_year = helpers.today().year
     if here is None or not rules.can_move_gift(gift, username, here["year"], current_year):
-        # the button is hidden in these cases; never trust the UI alone
+        # the section is hidden in these cases; never trust the UI alone
         st.error("Only the person who added a gift can move it, and only out of a list from another year.")
         return
 
-    st.markdown(f"Move **{gift['name']}** out of *{here['name']}* ({here['year']})")
+    st.markdown(f"Move out of *{here['name']}* ({here['year']})")
     if (gift.get("status") or "available") != "available":
         st.warning("It has been reserved or bought. The status resets to available in the new list.")
 
     years = sorted({l["year"] for l in all_lists}, reverse=True)
-    year = st.selectbox("Year", years)
+    year = st.selectbox("Year", years, key=f"move_year_{gift['id']}")
     targets = rules.move_targets(all_lists, gift["list_id"], year)
     if not targets:
         st.info(f"There are no other lists in {year}. Create one first.")
@@ -162,22 +187,21 @@ def move_gift(gift: dict, username: str) -> None:
     target_id = st.selectbox(
         "List",
         list(by_id),
+        key=f"move_target_{gift['id']}",
         format_func=lambda i: f"{by_id[i]['name']}  ·  for "
         + ", ".join(helpers.display_name(r) for r in by_id[i]["recipients"]),
     )
-    if st.button("Move gift", type="primary", width="stretch"):
+    if st.button("Move gift", type="primary", width="stretch", key=f"do_move_{gift['id']}"):
         if db.move_gift(gift["id"], username, target_id, current_year):
             # follow the gift: show the list it now lives in
             helpers.go_to(by_id[target_id]["year"], target_id)
             helpers.flash(f"Moved to {by_id[target_id]['name']}", "📦")
         else:
             helpers.flash("Couldn't move this gift", "⚠️")
-        st.rerun()
+        st.rerun()  # full rerun closes the modal
 
 
-@st.dialog("Comments")
-def comments(gift: dict, username: str) -> None:
-    st.markdown(f"**{gift['name']}**")
+def comments_panel(gift: dict, username: str) -> None:
     existing = db.get_comments_by_gift().get(gift["id"], [])
     if not existing:
         st.caption("No comments yet.")
@@ -190,6 +214,6 @@ def comments(gift: dict, username: str) -> None:
         )
     with st.form(f"comment_{gift['id']}", border=False, clear_on_submit=True):
         text = st.text_input("Write a comment")
-        if st.form_submit_button("Post", type="primary") and text.strip():
+        if st.form_submit_button("Post", type="primary", width="stretch") and text.strip():
             db.add_comment(gift["id"], text.strip(), username)
-            st.rerun()
+            st.rerun(scope="fragment")

@@ -32,6 +32,17 @@ div[data-testid="stVerticalBlockBorderWrapper"] { border-radius: 14px; }
     max-height: 340px !important;
     object-fit: contain !important;
 }
+/* Gift rows are clickable as a whole: the row's (invisible) button is stretched over all of it, and the
+   visible name is drawn as text underneath. A tap anywhere on the row hits the button. */
+[class*="st-key-gift_row_"] { position: relative; cursor: pointer; border-radius: 14px; transition: background .12s; }
+[class*="st-key-gift_row_"]:hover { background: rgba(192, 57, 43, .07); }
+[class*="st-key-gift_row_"]:has(button:focus-visible) { outline: 2px solid #c0392b; outline-offset: 2px; }
+[class*="st-key-gift_row_"] [class*="st-key-open_gift_"] {
+    position: absolute; inset: 0; z-index: 2;
+    width: 100% !important; height: 100% !important;  /* Streamlit gives it a fixed width: override */
+}
+[class*="st-key-gift_row_"] [class*="st-key-open_gift_"] * { width: 100% !important; height: 100% !important; }
+[class*="st-key-gift_row_"] [class*="st-key-open_gift_"] button { opacity: 0; cursor: pointer; }
 .gift-title { font-weight: 650; font-size: 1.05rem; line-height: 1.3; margin: .1rem 0 .15rem; }
 .newtag {
     background: #c0392b; color: #fff; border-radius: 999px;

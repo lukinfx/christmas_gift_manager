@@ -58,7 +58,15 @@ def ago(iso: str) -> str:
     return then.strftime("%d %b %Y")
 
 
-def status_badge(gift: dict) -> None:
+def md_escape(text: str) -> str:
+    """Escape user text for use inside Streamlit markdown / badge directives."""
+    for ch in ("\\", "*", "_", "`", "[", "]", "~", ":"):
+        text = text.replace(ch, "\\" + ch)
+    return text
+
+
+def status_md(gift: dict) -> str:
+    """The status as a coloured badge, in markdown (works in lists, labels and dialogs)."""
     status = gift.get("status") or "available"
     template, color, icon = STATUS.get(status, STATUS["available"])
     if status == "want_to_buy_shared":
@@ -67,7 +75,23 @@ def status_badge(gift: dict) -> None:
         who = display_name(gift.get("bought_by"))
     else:
         who = display_name(gift.get("interested_buyer"))
-    st.badge(template.format(who=who), icon=icon, color=color)
+    return f":{color}-badge[{icon} {md_escape(template.format(who=who))}]"
+
+
+def info_md(gift: dict, show_status: bool) -> str:
+    """One compact line of badges: New, price, status."""
+    parts = []
+    if rules.is_recent(gift.get("created_at"), datetime.now(timezone.utc)):
+        parts.append(":red-badge[:material/fiber_new: New]")
+    if gift.get("price") is not None:
+        parts.append(f":gray-badge[:material/payments: {md_escape(money(gift['price']))}]")
+    if show_status:
+        parts.append(status_md(gift))
+    return " ".join(parts)
+
+
+def status_badge(gift: dict) -> None:
+    st.markdown(status_md(gift))
 
 
 def split_caption(gift: dict) -> None:
